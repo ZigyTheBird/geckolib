@@ -103,15 +103,9 @@ public  class BakedAnimationsAdapter implements JsonDeserializer<BakedAnimations
 			KeyframeType lastKeyframeType = KeyframeType.LINEAR;
 
 			for (Map.Entry<String, JsonElement> entry : obj.entrySet()) {
-				if (entry.getValue() instanceof JsonObject entryObj && !entryObj.has("vector")) {
-					Pair<Pair<String, JsonElement>, KeyframeType> result = getTripletObjBedrock(entry.getKey(), entryObj, lastKeyframeType);
-					list.add(result.getFirst());
-					lastKeyframeType = result.getSecond();
-
-					continue;
-				}
-
-				list.add(Pair.of(entry.getKey(), entry.getValue()));
+				Pair<Pair<String, JsonElement>, KeyframeType> result = getTripletObjBedrock(entry.getKey(), entry.getValue(), lastKeyframeType);
+				list.add(result.getFirst());
+				lastKeyframeType = result.getSecond();
 			}
 
 			return list;
@@ -120,39 +114,40 @@ public  class BakedAnimationsAdapter implements JsonDeserializer<BakedAnimations
 		throw new JsonParseException("Invalid object type provided to getTripletObj, got: " + element);
 	}
 
-	private static Pair<Pair<String, JsonElement>, KeyframeType> getTripletObjBedrock(String timestamp, JsonObject keyframe, KeyframeType lastKeyframesType) {
+	private static Pair<Pair<String, JsonElement>, KeyframeType> getTripletObjBedrock(String timestamp, JsonElement keyframe, KeyframeType lastKeyframesType) {
 		JsonArray array;
-		JsonObject keyframeValues = new JsonObject();
+		JsonObject result = new JsonObject();
 
 		switch (lastKeyframesType) {
-			case SMOOTH -> keyframeValues.addProperty("easing", "catmullrom");
-			case STEP -> keyframeValues.addProperty("easing", "single_step");
+			case SMOOTH -> result.addProperty("easing", "catmullrom");
+			case STEP -> result.addProperty("easing", "single_step");
 		}
 
 		if (keyframe.isJsonArray()) {
-			keyframeValues.add("vector", keyframe);
-			return Pair.of(Pair.of(NumberUtils.isCreatable(timestamp) ? timestamp : "0", keyframeValues), KeyframeType.LINEAR);
+			result.add("vector", keyframe);
+			return Pair.of(Pair.of(NumberUtils.isCreatable(timestamp) ? timestamp : "0", result), KeyframeType.LINEAR);
 		}
 
-		if (keyframe.has("post")) {
-			if (keyframe.has("lerp_mode")) {
-				JsonElement post = keyframe.get("post");
-				array = post.isJsonArray() ? post.getAsJsonArray() : GsonHelper.getAsJsonArray(post.getAsJsonObject(), "vector");
-				if (array != null) {
-					keyframeValues.add("vector", array);
-					return Pair.of(Pair.of(NumberUtils.isCreatable(timestamp) ? timestamp : "0", keyframeValues), KeyframeType.SMOOTH);
+		if (keyframe instanceof JsonObject jsonObject) {
+			if (jsonObject.has("post")) {
+				if (jsonObject.has("lerp_mode")) {
+					JsonElement post = jsonObject.get("post");
+					array = post.isJsonArray() ? post.getAsJsonArray() : GsonHelper.getAsJsonArray(post.getAsJsonObject(), "vector");
+					if (array != null) {
+						result.add("vector", array);
+						return Pair.of(Pair.of(NumberUtils.isCreatable(timestamp) ? timestamp : "0", result), KeyframeType.SMOOTH);
+					}
+				} else if (jsonObject.has("pre")) {
+					JsonElement pre = jsonObject.get("pre");
+					array = pre.isJsonArray() ? pre.getAsJsonArray() : GsonHelper.getAsJsonArray(pre.getAsJsonObject(), "vector");
+					result.add("vector", array);
+					result.add("post", jsonObject.get("post"));
+					return Pair.of(Pair.of(NumberUtils.isCreatable(timestamp) ? timestamp : "0", result), KeyframeType.STEP);
 				}
 			}
-			else if (keyframe.has("pre")) {
-				JsonElement pre = keyframe.get("pre");
-				array = pre.isJsonArray() ? pre.getAsJsonArray() : GsonHelper.getAsJsonArray(pre.getAsJsonObject(), "vector");
-				keyframeValues.add("vector", array);
-				keyframeValues.add("post", keyframe.get("post"));
-				return Pair.of(Pair.of(NumberUtils.isCreatable(timestamp) ? timestamp : "0", keyframeValues), KeyframeType.STEP);
-			}
 		}
 
-		throw new JsonParseException("Invalid keyframe data - expected array, found " + keyframe);
+		throw new JsonParseException("Invalid keyframe data - expected array or bedrock keyframe, found " + keyframe);
 	}
 
 	private KeyframeStack<Keyframe<MathValue>> buildKeyframeStack(List<Pair<String, JsonElement>> entries, boolean isForRotation) throws CompoundException {
